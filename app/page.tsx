@@ -10,7 +10,6 @@ type Segment = {
   errorMsg?: string;
 };
 
-type LayoutMode = "side" | "below";
 type Provider = "dummy" | "libre" | "backend";
 type SegMode = "sentence" | "paragraph";
 
@@ -119,7 +118,6 @@ async function translateBackend(q: string, src: string, tgt: string) {
 }
 
 export default function Page() {
-  const [layout, setLayout] = useState<LayoutMode>("side");
   const [segMode, setSegMode] = useState<SegMode>("sentence");
   const [provider, setProvider] = useState<Provider>("dummy");
   const [endpoint, setEndpoint] = useState("https://libretranslate.de/translate");
@@ -128,7 +126,7 @@ export default function Page() {
   const [targetLang, setTargetLang] = useState("en");
   const [autoTranslate, setAutoTranslate] = useState(true);
 
-  const [html, setHtml] = useState("<p>在此像写文档一样输入；右侧/下方自动生成译文。</p>");
+  const [html, setHtml] = useState("<p>在此像写文档一样输入；旁侧自动生成译文。</p>");
   const editorRef = useRef<HTMLDivElement | null>(null);
 
   const [segments, setSegments] = useState<Segment[]>([]);
@@ -138,7 +136,12 @@ export default function Page() {
   const [progressActive, setProgressActive] = useState(false);
   const [draftBanner, setDraftBanner] = useState<{ html: string; savedAt: number } | null>(null);
 
-  useEffect(() => { const el = editorRef.current; if (el && el.innerHTML !== html) el.innerHTML = html; }, [layout]);
+  // 将 state 写回编辑器：避免每次键入都重设，只有当编辑器不在焦点时才同步，防止光标跳动
+  useEffect(() => {
+    const el = editorRef.current; if (!el) return;
+    if (document.activeElement === el) return;
+    if (el.innerHTML !== html) el.innerHTML = html;
+  }, [html]);
   useEffect(() => { try { const raw = localStorage.getItem(LS_DOC); if (raw) { const obj = JSON.parse(raw); if (obj?.html && obj.html !== html) setDraftBanner({ html: obj.html, savedAt: obj.savedAt || Date.now() }); } } catch {} }, []);
   const debouncedSave = useRef(debounce((h: string) => { try { localStorage.setItem(LS_DOC, JSON.stringify({ html: h, savedAt: Date.now() })); } catch {} }, 1000));
   useEffect(() => { debouncedSave.current(html); }, [html]);
@@ -162,7 +165,7 @@ export default function Page() {
 
   function showToast(msg: string, type: "success" | "error" = "success") { setToast({ msg, type }); setTimeout(() => setToast(null), 1600); }
   function flushEditorDom() { const el = editorRef.current; if (!el) return; const domHtml = el.innerHTML; if (domHtml !== html) setHtml(domHtml); }
-  function onLayoutChange(v: LayoutMode) { flushEditorDom(); setLayout(v); }
+  // 单一布局，无需切换
   function onEditorInput() { const el = editorRef.current; if (!el) return; setHtml(el.innerHTML); debouncedAuto.current(); }
   function onPaste(e: React.ClipboardEvent<HTMLDivElement>) {
     try {
@@ -239,11 +242,7 @@ export default function Page() {
     <div className="min-h-screen bg-gradient-to-b from-white to-slate-50">
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b relative">
         <div className="max-w-5xl mx-auto px-4 py-3 flex flex-wrap items-center gap-2">
-          <div className="text-lg font-semibold mr-2">Bilingual Writer — MVP</div>
-          <select className="border rounded px-2 py-1 text-sm" value={layout} onChange={(e) => onLayoutChange(e.target.value as LayoutMode)}>
-            <option value="side">右侧译文</option>
-            <option value="below">下方译文</option>
-          </select>
+          <div className="text-lg font-semibold mr-2">Bilingual Writer</div>
           <select className="border rounded px-2 py-1 text-sm" value={segMode} onChange={(e)=>setSegMode(e.target.value as SegMode)}>
             <option value="sentence">按句子</option>
             <option value="paragraph">按段落</option>
@@ -268,10 +267,10 @@ export default function Page() {
           </select>
           <label className="ml-2 text-sm flex items-center gap-1"><input type="checkbox" checked={autoTranslate} onChange={(e)=>setAutoTranslate(e.target.checked)} /> 自动翻译</label>
           <div className="ml-auto flex items-center gap-2">
-            <button className="border rounded px-2 py-1 text-sm" onClick={exportMarkdown}>Export MD</button>
-            <button className="border rounded px-2 py-1 text-sm" onClick={exportDocx}>Export DOCX</button>
+            <button className="border rounded px-2 py-1 text-sm" onClick={exportMarkdown}>导出 MD</button>
+            <button className="border rounded px-2 py-1 text-sm" onClick={exportDocx}>导出 DOCX</button>
             <button className="border rounded px-2 py-1 text-sm" onClick={refreshAll} disabled={busy}>全部刷新</button>
-            <button className="bg-emerald-600 text-white rounded px-3 py-1 text-sm" onClick={translateStale} disabled={busy}>Translate now</button>
+            <button className="bg-emerald-600 text-white rounded px-3 py-1 text-sm" onClick={translateStale} disabled={busy}>立即翻译</button>
             <button className="border rounded px-2 py-1 text-sm" onClick={newDoc}>新文档</button>
           </div>
         </div>
@@ -290,48 +289,23 @@ export default function Page() {
         </div>
       )}
 
-      <main className="max-w-5xl mx-auto px-4 py-6 space-y-4">
-        {layout === "side" ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="bg-white rounded-2xl border shadow-sm p-4">
-              <div className="text-sm text-slate-500 mb-2">像文档一样编辑（支持粘贴清洗、自动翻译）</div>
-              <div ref={editorRef} contentEditable suppressContentEditableWarning className="min-h-[44vh] rounded-xl border p-4 focus:outline-none prose max-w-none"
-                   onInput={onEditorInput} onBlur={onEditorInput} onPaste={onPaste} onCompositionEnd={onEditorInput} />
-            </div>
-            <div className="bg-white rounded-2xl border shadow-sm p-4">
-              <div className="text-sm text-slate-500">{s.fresh}/{s.total} ready · {s.stale} stale {s.trans ? `· ${s.trans}…` : ""}</div>
-              <div className="mt-3 space-y-3">
-                {segments.length === 0 && <div className="text-sm text-slate-400">输入文本后，这里显示对齐译文。</div>}
-                {segments.map((seg, i) => (
-                  <div key={seg.id} className="rounded-xl border p-3" data-seg={seg.id}>
-                    <div className="text-xs text-slate-500 whitespace-pre-wrap">{seg.text}</div>
-                    <div className="mt-2 p-2 bg-slate-50 border rounded translation-box whitespace-pre-wrap min-h-[1.5rem]">
-                      {seg.translation || (seg.status === "translating" ? "Translating…" : "")}
-                      {seg.status === "error" && <div className="text-xs text-red-600">{seg.errorMsg}</div>}
-                    </div>
-                    <div className="mt-2 flex items-center gap-2 text-sm">
-                      <button className="border rounded px-2 py-1" onClick={()=>refreshOne(i)} disabled={seg.locked || busy}>刷新</button>
-                      <button className="border rounded px-2 py-1" onClick={()=>setLock(i, !seg.locked)}>{seg.locked ? "已锁定" : "未锁定"}</button>
-                      <button className="border rounded px-2 py-1" onClick={async()=>{ const ok = await copyText(seg.translation || ""); showToast(ok ? "已复制" : "复制失败", ok ? "success" : "error"); }}>复制译文</button>
-                      {seg.status === "stale" && <span className="text-xs text-amber-600">需更新</span>}
-                      {seg.status === "fresh" && <span className="text-xs text-emerald-600">最新</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="bg-white rounded-2xl border shadow-sm p-4">
-            <div className="text-sm text-slate-500 mb-2">文档视图（原文 + 下方译文）</div>
-            <div ref={editorRef} contentEditable suppressContentEditableWarning className="min-h-[24vh] rounded-xl border p-4 focus:outline-none prose max-w-none"
+      <main className="max-w-5xl mx-auto px-4 py-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+            <div className="text-sm text-slate-500 mb-2">像文档一样编辑（支持粘贴清洗、自动翻译）</div>
+            <div ref={editorRef} contentEditable suppressContentEditableWarning className="min-h-[44vh] rounded-xl border p-4 focus:outline-none prose max-w-none"
                  onInput={onEditorInput} onBlur={onEditorInput} onPaste={onPaste} onCompositionEnd={onEditorInput} />
-            <div className="mt-4 space-y-4">
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+            <div className="text-sm text-slate-500">就绪 {s.fresh}/{s.total} · 待更新 {s.stale}{s.trans ? ` · 进行中 ${s.trans}…` : ""}</div>
+            <div className="mt-3 space-y-3">
+              {segments.length === 0 && <div className="text-sm text-slate-400">输入文本后，这里显示对齐译文。</div>}
               {segments.map((seg, i) => (
                 <div key={seg.id} className="rounded-xl border p-3" data-seg={seg.id}>
-                  <div className="whitespace-pre-wrap leading-7">{seg.text}</div>
-                  <div className="mt-2 pl-3 border-l-2 bg-slate-50 rounded whitespace-pre-wrap text-sm translation-box">
+                  <div className="text-xs text-slate-500 whitespace-pre-wrap">{seg.text}</div>
+                  <div className="mt-2 p-2 bg-slate-50 border border-slate-200 rounded translation-box whitespace-pre-wrap min-h-[1.5rem]">
                     {seg.translation || (seg.status === "translating" ? "Translating…" : "")}
+                    {seg.status === "error" && <div className="text-xs text-red-600">{seg.errorMsg}</div>}
                   </div>
                   <div className="mt-2 flex items-center gap-2 text-sm">
                     <button className="border rounded px-2 py-1" onClick={()=>refreshOne(i)} disabled={seg.locked || busy}>刷新</button>
@@ -344,7 +318,7 @@ export default function Page() {
               ))}
             </div>
           </div>
-        )}
+        </div>
       </main>
 
       {toast && (<div className={`fixed bottom-4 right-4 z-50 text-white px-3 py-2 rounded-xl shadow ${toast.type === "success" ? "bg-emerald-600" : "bg-amber-600"}`}>{toast.msg}</div>)}
