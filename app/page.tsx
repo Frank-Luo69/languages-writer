@@ -394,7 +394,7 @@ export default function Page() {
     setDownloading(true);
     try {
       const docx = await import('docx');
-  const { Document, Packer, Paragraph, TextRun, Table, TableCell, TableRow, WidthType, AlignmentType } = docx as any;
+  const { Document, Packer, Paragraph, TextRun, Table, TableCell, TableRow, WidthType, AlignmentType, BorderStyle } = docx as any;
 
       const makeParas = (text: string) => {
         // 段落级：按空行拆；段内：单行换行转为换行符
@@ -415,17 +415,32 @@ export default function Page() {
 
       let children: any[] = [ new Paragraph({ text: 'Bilingual Document', heading: 'Heading1', alignment: AlignmentType.CENTER }) ];
       if (segMode === 'whole' && segments.length) {
-        // 自然段输出：原文段落 -> 译文段落 -> 空行
+        // 整体模式：使用两列表格，仅显示中间竖线（无外框、无横线）
         const srcParas = extractParagraphsFromHTML(html);
         const tgtParas = splitPlainIntoParagraphs(segments[0].translation || "");
         const n = Math.max(srcParas.length, tgtParas.length);
+        const rows: any[] = [];
         for (let i = 0; i < n; i++) {
-          const left = makeParas(srcParas[i] || '');
-          const right = makeParas(tgtParas[i] || '');
-          children.push(...left);
-          children.push(...right);
-          children.push(new Paragraph(""));
+          rows.push(new TableRow({
+            children: [
+              new TableCell({ children: makeParas(srcParas[i] || ''), width: { size: 50, type: WidthType.PERCENTAGE } }),
+              new TableCell({ children: makeParas(tgtParas[i] || ''), width: { size: 50, type: WidthType.PERCENTAGE } }),
+            ],
+          }));
         }
+        const table = new Table({
+          rows,
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          borders: {
+            top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+            bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+            left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+            right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+            insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+            insideVertical: { style: BorderStyle.SINGLE, size: 8, color: "000000" },
+          },
+        });
+        children.push(table);
       } else {
         // 非整体模式仍用表格对齐
         const rows = segments
