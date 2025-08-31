@@ -116,8 +116,8 @@ async function copyText(str: string): Promise<boolean> {
     // 2) a[download] 触发下载
     try {
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = filename; a.rel = 'noopener'; a.target = '_blank';
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
       a.style.display = 'none'; document.body.appendChild(a);
       a.click();
       setTimeout(() => { try { a.remove(); URL.revokeObjectURL(url); } catch {} }, 0);
@@ -183,6 +183,7 @@ export default function Page() {
 
   const [segments, setSegments] = useState<Segment[]>([]);
   const [busy, setBusy] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
   const [progress, setProgress] = useState(0);
   const [progressActive, setProgressActive] = useState(false);
@@ -263,13 +264,21 @@ export default function Page() {
   function setLock(i: number, locked: boolean) { setSegments((prev) => prev.map((s, j) => (j === i ? { ...s, locked } : s))); }
 
   async function exportMarkdown() {
-    const parts: string[] = ["# Bilingual Document", ""];
-    segments.forEach((s) => { if (!s.text.trim()) return; parts.push(s.text.trim()); const t = (s.translation || "").trim(); if (t) parts.push("> " + t); parts.push(""); });
-    const blob = new Blob([parts.join(NL)], { type: "text/markdown;charset=utf-8" });
-    const ok = await downloadBlobSmart("bilingual.md", blob, "text/markdown");
-    if (!ok) showToast("下载被阻止，建议在浏览器中打开或放宽限制", "error");
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const parts: string[] = ["# Bilingual Document", ""];
+      segments.forEach((s) => { if (!s.text.trim()) return; parts.push(s.text.trim()); const t = (s.translation || "").trim(); if (t) parts.push("> " + t); parts.push(""); });
+      const blob = new Blob([parts.join(NL)], { type: "text/markdown;charset=utf-8" });
+      const ok = await downloadBlobSmart("bilingual.md", blob, "text/markdown");
+      if (!ok) showToast("下载被阻止，建议在浏览器中打开或放宽限制", "error");
+    } finally {
+      setDownloading(false);
+    }
   }
   async function exportDocx() {
+    if (downloading) return;
+    setDownloading(true);
     try {
       const docx = await import('docx');
       const { Document, Packer, Paragraph, Table, TableCell, TableRow, WidthType, AlignmentType } = docx as any;
@@ -288,6 +297,8 @@ export default function Page() {
       if (!ok) showToast('下载被阻止，建议在浏览器中打开或放宽限制', 'error');
     } catch (e: any) {
       showToast(`DOCX 导出失败：${e?.message || String(e)}`, 'error');
+    } finally {
+      setDownloading(false);
     }
   }
 
@@ -326,8 +337,8 @@ export default function Page() {
           </select>
           <label className="bw-meta" style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 8 }}><input type="checkbox" checked={autoTranslate} onChange={(e)=>setAutoTranslate(e.target.checked)} /> 自动翻译</label>
           <div className="bw-grow">
-            <button className="bw-btn" onClick={exportMarkdown}>导出 MD</button>
-            <button className="bw-btn" onClick={exportDocx}>导出 DOCX</button>
+            <button className="bw-btn" onClick={exportMarkdown} disabled={downloading}>导出 MD</button>
+            <button className="bw-btn" onClick={exportDocx} disabled={downloading}>导出 DOCX</button>
             <button className="bw-btn" onClick={refreshAll} disabled={busy}>全部刷新</button>
             <button className="bw-btn bw-btn-primary" onClick={translateStale} disabled={busy}>立即翻译</button>
             <button className="bw-btn" onClick={newDoc}>新文档</button>
