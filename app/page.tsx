@@ -85,51 +85,64 @@ async function copyText(str: string): Promise<boolean> {
   } catch { return false; }
 }
 
+  // 智能下载：优先使用文件保存选择器，其次 a[download]，最后新窗口打开
+  async function downloadBlobSmart(filename: string, blob: Blob, mime?: string): Promise<boolean> {
+    // 1) File System Access API（需在用户手势内调用，且浏览器支持）
+    try {
+      const w: any = window as any;
+      if (typeof w.showSaveFilePicker === 'function') {
+        const handle = await w.showSaveFilePicker({
+          suggestedName: filename,
+          types: [
+            {
+              description: 'Document',
+              accept: {
+                'text/markdown': ['.md'],
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+                'application/octet-stream': ['.bin'],
+              },
+            },
+          ],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return true;
+      }
+    } catch (e: any) {
+      // 用户取消另算失败但不报错；其他情况继续回退
+      if (e?.name !== 'AbortError') console.warn('saveFilePicker failed:', e);
+    }
+    // 2) a[download] 触发下载
+    try {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.rel = 'noopener'; a.target = '_blank';
+      a.style.display = 'none'; document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { try { a.remove(); URL.revokeObjectURL(url); } catch {} }, 0);
+      return true;
+    } catch (e) {
+      console.warn('anchor download failed:', e);
+    }
+    // 3) 最后回退：新开标签页（某些沙箱里 a[download] 被禁时）
+    try {
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 5000);
+      return true;
+    } catch (e) {
+      console.warn('window.open fallback failed:', e);
+    }
+    return false;
+  }
+
 // 粘贴清洗
 function escapeHtml(s: string) { return (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 function sanitizePlainTextToHtml(text: string) {
   const t = (text || "").replace(/\r\n?/g,"\n");
   const paras = t.split(/\n{2,}/);
   return paras.map((p) => `<p>${escapeHtml(p.trim()).replace(/\n/g,"<br>")}</p>`).join("");
-}
-
-// 智能保存：优先原生保存对话框(showSaveFilePicker)，其次 a[download]，最后 window.open 兜底
-async function saveBlobSmart(blob: Blob, filename: string): Promise<void> {
-  // 1) 原生保存对话框（Chromium/Edge/部分桌面浏览器）
-  const anyWin = window as any;
-  if (anyWin?.showSaveFilePicker && typeof anyWin.showSaveFilePicker === 'function') {
-    try {
-      const ext = (filename.split('.').pop() || '').toLowerCase();
-      const types = [
-        { description: 'Markdown', accept: { 'text/markdown': ['.md'] } },
-        { description: 'Word Document', accept: { 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] } },
-        { description: 'Text', accept: { 'text/plain': ['.txt'] } },
-      ];
-      const handle = await anyWin.showSaveFilePicker({ suggestedName: filename, types });
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-      return;
-    } catch (e) {
-      // 用户取消或被策略阻止时，继续走后续兜底
-    }
-  }
-  // 2) a[download] + objectURL
-  try {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename; a.rel = 'noopener'; a.style.display = 'none';
-    document.body.appendChild(a); a.click(); a.remove();
-    // 某些环境需要稍延迟再 revoke，确保浏览器已消费 URL
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    return;
-  } catch {}
-  // 3) 兜底：尝试新开窗口（在部分沙箱环境仍可能受限）
-  try {
-    const url = URL.createObjectURL(blob);
-    window.open(url, '_blank');
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  } catch {}
 }
 
 // 翻译实现
@@ -249,11 +262,12 @@ export default function Page() {
   function refreshAll() { setSegments((prev) => prev.map((s) => (s.locked ? s : { ...s, status: "stale" }))); translateStale(); }
   function setLock(i: number, locked: boolean) { setSegments((prev) => prev.map((s, j) => (j === i ? { ...s, locked } : s))); }
 
-  function exportMarkdown() {
+  async function exportMarkdown() {
     const parts: string[] = ["# Bilingual Document", ""];
     segments.forEach((s) => { if (!s.text.trim()) return; parts.push(s.text.trim()); const t = (s.translation || "").trim(); if (t) parts.push("> " + t); parts.push(""); });
-  const blob = new Blob([parts.join(NL)], { type: "text/markdown;charset=utf-8" });
-  saveBlobSmart(blob, "bilingual.md");
+    const blob = new Blob([parts.join(NL)], { type: "text/markdown;charset=utf-8" });
+    const ok = await downloadBlobSmart("bilingual.md", blob, "text/markdown");
+    if (!ok) showToast("下载被阻止，建议在浏览器中打开或放宽限制", "error");
   }
   async function exportDocx() {
     try {
@@ -269,10 +283,11 @@ export default function Page() {
         }));
       const table = new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } });
       const doc = new Document({ sections: [{ children: [ new Paragraph({ text: 'Bilingual Document', heading: 'Heading1', alignment: AlignmentType.CENTER }), table ] }] });
-  const blob = await Packer.toBlob(doc);
-  await saveBlobSmart(blob, 'bilingual.docx');
+      const blob = await Packer.toBlob(doc);
+      const ok = await downloadBlobSmart('bilingual.docx', blob, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      if (!ok) showToast('下载被阻止，建议在浏览器中打开或放宽限制', 'error');
     } catch (e: any) {
-      alert(`DOCX export failed: ${e?.message || String(e)}\n\n可先用 Export MD。`);
+      showToast(`DOCX 导出失败：${e?.message || String(e)}`, 'error');
     }
   }
 
