@@ -415,27 +415,28 @@ export default function Page() {
 
       let children: any[] = [ new Paragraph({ text: 'Bilingual Document', heading: 'Heading1', alignment: AlignmentType.CENTER }) ];
       if (segMode === 'whole' && segments.length) {
-        // 整体模式：使用两列表格，仅显示中间竖线（无外框、无横线）
+        // 整体模式：单行双列表格，外框 + 中间竖线，无横线
         const srcParas = extractParagraphsFromHTML(html);
         const tgtParas = splitPlainIntoParagraphs(segments[0].translation || "");
-        const n = Math.max(srcParas.length, tgtParas.length);
-        const rows: any[] = [];
-        for (let i = 0; i < n; i++) {
-          rows.push(new TableRow({
-            children: [
-              new TableCell({ children: makeParas(srcParas[i] || ''), width: { size: 50, type: WidthType.PERCENTAGE } }),
-              new TableCell({ children: makeParas(tgtParas[i] || ''), width: { size: 50, type: WidthType.PERCENTAGE } }),
-            ],
-          }));
-        }
+        let leftChildren: any[] = [];
+        let rightChildren: any[] = [];
+        srcParas.forEach((p, i) => { if (i>0) leftChildren.push(new Paragraph("")); leftChildren.push(...makeParas(p)); });
+        tgtParas.forEach((p, i) => { if (i>0) rightChildren.push(new Paragraph("")); rightChildren.push(...makeParas(p)); });
+        if (!leftChildren.length) leftChildren = [new Paragraph("")];
+        if (!rightChildren.length) rightChildren = [new Paragraph("")];
         const table = new Table({
-          rows,
+          rows: [ new TableRow({
+            children: [
+              new TableCell({ children: leftChildren, width: { size: 50, type: WidthType.PERCENTAGE } }),
+              new TableCell({ children: rightChildren, width: { size: 50, type: WidthType.PERCENTAGE } }),
+            ],
+          }) ],
           width: { size: 100, type: WidthType.PERCENTAGE },
           borders: {
-            top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-            bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-            left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-            right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+            top: { style: BorderStyle.SINGLE, size: 8, color: "000000" },
+            bottom: { style: BorderStyle.SINGLE, size: 8, color: "000000" },
+            left: { style: BorderStyle.SINGLE, size: 8, color: "000000" },
+            right: { style: BorderStyle.SINGLE, size: 8, color: "000000" },
             insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
             insideVertical: { style: BorderStyle.SINGLE, size: 8, color: "000000" },
           },
