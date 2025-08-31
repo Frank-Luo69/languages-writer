@@ -102,8 +102,62 @@ function extractParagraphsFromHTML(html: string): string[] {
 }
 // 句子切分
 function splitIntoSentences(text: string): string[] {
-  const re = new RegExp(`[^。.！？!?${NL}]+[。.！？!?${NL}]*`, "g");
-  const arr = text.match(re); if (!arr) return text ? [text] : []; return arr;
+  const t = text || "";
+  const out: string[] = [];
+  const isDigit = (c: string) => /[0-9]/.test(c);
+  const closers = new Set(['"', "'", '”', '’', '」', '』', '）', ')', ']', '】', '＞', '>']);
+  const n = t.length;
+  let i = 0;
+  let buf = "";
+  while (i < n) {
+    const ch = t[i];
+    const next = t[i + 1] || '';
+    const prev = t[i - 1] || '';
+
+    if (ch === '\n') {
+      if (buf.trim()) out.push(buf.trim());
+      buf = ""; i++; continue;
+    }
+
+    buf += ch;
+
+    // 句末判断
+    if (ch === '.') {
+      // 小数/版本号等，不作为句末：digit . digit
+      if (isDigit(prev) && isDigit(next)) { i++; continue; }
+      // 省略号 ... 保持到最后一个点
+      if (next === '.') { i++; continue; }
+      // 吸收紧随其后的右引号/括号等
+      let j = i + 1;
+      while (j < n && closers.has(t[j])) { buf += t[j]; j++; }
+      i = j;
+      if (buf.trim()) out.push(buf.trim());
+      buf = "";
+      continue;
+    }
+    if (ch === '!' || ch === '?') {
+      // 连续 ?! 或 !! 作为同一结尾
+      if (next === '!' || next === '?') { i++; continue; }
+      let j = i + 1;
+      while (j < n && closers.has(t[j])) { buf += t[j]; j++; }
+      i = j;
+      if (buf.trim()) out.push(buf.trim());
+      buf = "";
+      continue;
+    }
+    if (ch === '。' || ch === '！' || ch === '？') {
+      let j = i + 1;
+      while (j < n && closers.has(t[j])) { buf += t[j]; j++; }
+      i = j;
+      if (buf.trim()) out.push(buf.trim());
+      buf = "";
+      continue;
+    }
+
+    i++;
+  }
+  if (buf.trim()) out.push(buf.trim());
+  return out;
 }
 
 // 安全复制（Clipboard API 受限时用 fallback）
@@ -340,7 +394,7 @@ export default function Page() {
     setDownloading(true);
     try {
       const docx = await import('docx');
-      const { Document, Packer, Paragraph, TextRun, Table, TableCell, TableRow, WidthType, AlignmentType } = docx as any;
+  const { Document, Packer, Paragraph, TextRun, Table, TableCell, TableRow, WidthType, AlignmentType } = docx as any;
 
       const makeParas = (text: string) => {
         // 段落级：按空行拆；段内：单行换行转为换行符
@@ -359,23 +413,22 @@ export default function Page() {
         return paras;
       };
 
-      let rows: any[] = [];
+      let children: any[] = [ new Paragraph({ text: 'Bilingual Document', heading: 'Heading1', alignment: AlignmentType.CENTER }) ];
       if (segMode === 'whole' && segments.length) {
-        const srcParas = extractParagraphsFromHTML(html); // 更可靠的原文段落
+        // 自然段输出：原文段落 -> 译文段落 -> 空行
+        const srcParas = extractParagraphsFromHTML(html);
         const tgtParas = splitPlainIntoParagraphs(segments[0].translation || "");
         const n = Math.max(srcParas.length, tgtParas.length);
         for (let i = 0; i < n; i++) {
           const left = makeParas(srcParas[i] || '');
           const right = makeParas(tgtParas[i] || '');
-          rows.push(new TableRow({
-            children: [
-              new TableCell({ children: left, width: { size: 50, type: WidthType.PERCENTAGE } }),
-              new TableCell({ children: right, width: { size: 50, type: WidthType.PERCENTAGE } }),
-            ],
-          }));
+          children.push(...left);
+          children.push(...right);
+          children.push(new Paragraph(""));
         }
       } else {
-        rows = segments
+        // 非整体模式仍用表格对齐
+        const rows = segments
           .filter(s => (s.text && s.text.trim()) || (s.translation && s.translation.trim()))
           .map((s: Segment) => new TableRow({
             children: [
@@ -383,9 +436,10 @@ export default function Page() {
               new TableCell({ children: makeParas(s.translation || ''), width: { size: 50, type: WidthType.PERCENTAGE } }),
             ],
           }));
+        const table = new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } });
+        children.push(table);
       }
-      const table = new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } });
-      const doc = new Document({ sections: [{ children: [ new Paragraph({ text: 'Bilingual Document', heading: 'Heading1', alignment: AlignmentType.CENTER }), table ] }] });
+      const doc = new Document({ sections: [{ children }] });
       const blob = await Packer.toBlob(doc);
   const ok = downloadBlobSmart('bilingual.docx', blob);
       if (!ok) showToast('下载被阻止，建议在浏览器中打开或放宽限制', 'error');
