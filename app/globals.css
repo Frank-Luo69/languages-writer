@@ -1,0 +1,56 @@
+/* Minimal, elegant global styles for Bilingual Writer */
+:root {
+  --bw-bg: #f8fafc;
+  --bw-surface: #ffffff;
+  --bw-border: #e5e7eb;
+  --bw-text: #0f172a;
+  --bw-subtle: #475569;
+  --bw-accent: #10b981;
+  --bw-warn: #d97706;
+  --bw-error: #dc2626;
+  --bw-radius: 16px;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; color: var(--bw-text); background: linear-gradient(#fff, var(--bw-bg)); }
+
+.bw-header {
+  position: sticky; top: 0; z-index: 10; background: rgba(255,255,255,0.85);
+  backdrop-filter: blur(8px); border-bottom: 1px solid var(--bw-border);
+}
+.bw-container { max-width: 1040px; margin: 0 auto; padding: 12px 16px; }
+.bw-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.bw-title { font-weight: 600; font-size: 18px; margin-right: 8px; }
+.bw-grow { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+.bw-select, .bw-input { border: 1px solid var(--bw-border); border-radius: 8px; padding: 6px 8px; font-size: 14px; }
+.bw-input { min-width: 220px; }
+
+.bw-main { padding: 24px 16px; }
+.bw-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+@media (min-width: 1024px) {
+  .bw-grid { grid-template-columns: 1fr 1fr; }
+}
+
+.bw-card { background: var(--bw-surface); border: 1px solid var(--bw-border); border-radius: var(--bw-radius); box-shadow: 0 1px 2px rgba(0,0,0,0.04); padding: 16px; }
+.bw-meta { color: #64748b; font-size: 13px; }
+
+.bw-editor { min-height: 44vh; border: 1px solid var(--bw-border); border-radius: 12px; padding: 12px; outline: none; }
+.bw-translation-box { min-height: 1.5rem; background: #f8fafc; border: 1px solid var(--bw-border); border-radius: 10px; padding: 8px; white-space: pre-wrap; }
+
+.bw-actions { margin-top: 8px; display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.bw-btn { border: 1px solid var(--bw-border); border-radius: 8px; padding: 6px 10px; background: #fff; cursor: pointer; }
+.bw-btn:disabled { opacity: 0.6; cursor: default; }
+.bw-btn-primary { background: var(--bw-accent); color: #fff; border-color: var(--bw-accent); }
+.bw-badge-warn { font-size: 12px; color: var(--bw-warn); }
+.bw-badge-ok { font-size: 12px; color: var(--bw-accent); }
+.bw-badge-err { font-size: 12px; color: var(--bw-error); }
+
+.bw-progress { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--bw-accent); transition: width 200ms ease; }
+
+.bw-toast { position: fixed; right: 16px; bottom: 16px; z-index: 50; color: #fff; padding: 8px 12px; border-radius: 12px; box-shadow: 0 6px 16px rgba(0,0,0,0.15); }
+.bw-toast.ok { background: var(--bw-accent); }
+.bw-toast.warn { background: #b45309; }
+
+.bw-footer { color: #94a3b8; font-size: 12px; text-align: center; padding-bottom: 24px; }

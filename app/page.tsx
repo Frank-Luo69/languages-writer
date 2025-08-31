@@ -239,42 +239,42 @@ export default function Page() {
   }, [segments]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white to-slate-50">
-      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b relative">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex flex-wrap items-center gap-2">
-          <div className="text-lg font-semibold mr-2">Bilingual Writer</div>
-          <select className="border rounded px-2 py-1 text-sm" value={segMode} onChange={(e)=>setSegMode(e.target.value as SegMode)}>
+    <div>
+      <header className="bw-header">
+        <div className="bw-container bw-toolbar">
+          <div className="bw-title">Bilingual Writer</div>
+          <select className="bw-select" value={segMode} onChange={(e)=>setSegMode(e.target.value as SegMode)}>
             <option value="sentence">按句子</option>
             <option value="paragraph">按段落</option>
           </select>
-          <select className="border rounded px-2 py-1 text-sm" value={provider} onChange={(e)=>setProvider(e.target.value as Provider)}>
+          <select className="bw-select" value={provider} onChange={(e)=>setProvider(e.target.value as Provider)}>
             <option value="dummy">Dummy(演示)</option>
             <option value="libre">LibreTranslate</option>
             <option value="backend">Backend(/api/translate)</option>
           </select>
           {provider === "libre" && (
             <>
-              <input className="border rounded px-2 py-1 text-sm w-56" value={endpoint} onChange={(e)=>setEndpoint(e.target.value)} placeholder="Endpoint"/>
-              <input className="border rounded px-2 py-1 text-sm w-40" value={apiKey} onChange={(e)=>setApiKey(e.target.value)} placeholder="API Key(可选)"/>
+              <input className="bw-input" value={endpoint} onChange={(e)=>setEndpoint(e.target.value)} placeholder="Endpoint"/>
+              <input className="bw-input" value={apiKey} onChange={(e)=>setApiKey(e.target.value)} placeholder="API Key(可选)"/>
             </>
           )}
-          <select className="border rounded px-2 py-1 text-sm" value={sourceLang} onChange={(e)=>setSourceLang(e.target.value)}>
+          <select className="bw-select" value={sourceLang} onChange={(e)=>setSourceLang(e.target.value)}>
             <option value="auto">Auto</option><option value="zh">Chinese</option><option value="en">English</option><option value="ja">Japanese</option><option value="ko">Korean</option>
           </select>
-          <div className="text-slate-400">→</div>
-          <select className="border rounded px-2 py-1 text-sm" value={targetLang} onChange={(e)=>setTargetLang(e.target.value)}>
+          <div className="bw-meta">→</div>
+          <select className="bw-select" value={targetLang} onChange={(e)=>setTargetLang(e.target.value)}>
             <option value="en">English</option><option value="zh">Chinese</option><option value="ja">Japanese</option><option value="ko">Korean</option>
           </select>
-          <label className="ml-2 text-sm flex items-center gap-1"><input type="checkbox" checked={autoTranslate} onChange={(e)=>setAutoTranslate(e.target.checked)} /> 自动翻译</label>
-          <div className="ml-auto flex items-center gap-2">
-            <button className="border rounded px-2 py-1 text-sm" onClick={exportMarkdown}>导出 MD</button>
-            <button className="border rounded px-2 py-1 text-sm" onClick={exportDocx}>导出 DOCX</button>
-            <button className="border rounded px-2 py-1 text-sm" onClick={refreshAll} disabled={busy}>全部刷新</button>
-            <button className="bg-emerald-600 text-white rounded px-3 py-1 text-sm" onClick={translateStale} disabled={busy}>立即翻译</button>
-            <button className="border rounded px-2 py-1 text-sm" onClick={newDoc}>新文档</button>
+          <label className="bw-meta" style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 8 }}><input type="checkbox" checked={autoTranslate} onChange={(e)=>setAutoTranslate(e.target.checked)} /> 自动翻译</label>
+          <div className="bw-grow">
+            <button className="bw-btn" onClick={exportMarkdown}>导出 MD</button>
+            <button className="bw-btn" onClick={exportDocx}>导出 DOCX</button>
+            <button className="bw-btn" onClick={refreshAll} disabled={busy}>全部刷新</button>
+            <button className="bw-btn bw-btn-primary" onClick={translateStale} disabled={busy}>立即翻译</button>
+            <button className="bw-btn" onClick={newDoc}>新文档</button>
           </div>
         </div>
-        {progressActive && (<div className="absolute left-0 bottom-0 h-[2px] bg-emerald-500" style={{ width: Math.round(progress*100) + "%" }} />)}
+        {progressActive && (<div className="bw-progress" style={{ width: Math.round(progress*100) + "%" }} />)}
       </header>
 
       {draftBanner && (
@@ -289,30 +289,30 @@ export default function Page() {
         </div>
       )}
 
-      <main className="max-w-5xl mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-            <div className="text-sm text-slate-500 mb-2">像文档一样编辑（支持粘贴清洗、自动翻译）</div>
-            <div ref={editorRef} contentEditable suppressContentEditableWarning className="min-h-[44vh] rounded-xl border p-4 focus:outline-none prose max-w-none"
+      <main className="bw-container bw-main">
+        <div className="bw-grid">
+          <div className="bw-card">
+            <div className="bw-meta" style={{ marginBottom: 8 }}>像文档一样编辑（支持粘贴清洗、自动翻译）</div>
+            <div ref={editorRef} contentEditable suppressContentEditableWarning className="bw-editor"
                  onInput={onEditorInput} onBlur={onEditorInput} onPaste={onPaste} onCompositionEnd={onEditorInput} />
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-            <div className="text-sm text-slate-500">就绪 {s.fresh}/{s.total} · 待更新 {s.stale}{s.trans ? ` · 进行中 ${s.trans}…` : ""}</div>
-            <div className="mt-3 space-y-3">
-              {segments.length === 0 && <div className="text-sm text-slate-400">输入文本后，这里显示对齐译文。</div>}
+          <div className="bw-card">
+            <div className="bw-meta">就绪 {s.fresh}/{s.total} · 待更新 {s.stale}{s.trans ? ` · 进行中 ${s.trans}…` : ""}</div>
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {segments.length === 0 && <div className="bw-meta">输入文本后，这里显示对齐译文。</div>}
               {segments.map((seg, i) => (
-                <div key={seg.id} className="rounded-xl border p-3" data-seg={seg.id}>
-                  <div className="text-xs text-slate-500 whitespace-pre-wrap">{seg.text}</div>
-                  <div className="mt-2 p-2 bg-slate-50 border border-slate-200 rounded translation-box whitespace-pre-wrap min-h-[1.5rem]">
+                <div key={seg.id} className="bw-card" style={{ padding: 12 }} data-seg={seg.id}>
+                  <div className="bw-meta" style={{ whiteSpace: 'pre-wrap' }}>{seg.text}</div>
+                  <div className="bw-translation-box" style={{ marginTop: 8 }}>
                     {seg.translation || (seg.status === "translating" ? "Translating…" : "")}
-                    {seg.status === "error" && <div className="text-xs text-red-600">{seg.errorMsg}</div>}
+                    {seg.status === "error" && <div className="bw-badge-err">{seg.errorMsg}</div>}
                   </div>
-                  <div className="mt-2 flex items-center gap-2 text-sm">
-                    <button className="border rounded px-2 py-1" onClick={()=>refreshOne(i)} disabled={seg.locked || busy}>刷新</button>
-                    <button className="border rounded px-2 py-1" onClick={()=>setLock(i, !seg.locked)}>{seg.locked ? "已锁定" : "未锁定"}</button>
-                    <button className="border rounded px-2 py-1" onClick={async()=>{ const ok = await copyText(seg.translation || ""); showToast(ok ? "已复制" : "复制失败", ok ? "success" : "error"); }}>复制译文</button>
-                    {seg.status === "stale" && <span className="text-xs text-amber-600">需更新</span>}
-                    {seg.status === "fresh" && <span className="text-xs text-emerald-600">最新</span>}
+                  <div className="bw-actions">
+                    <button className="bw-btn" onClick={()=>refreshOne(i)} disabled={seg.locked || busy}>刷新</button>
+                    <button className="bw-btn" onClick={()=>setLock(i, !seg.locked)}>{seg.locked ? "已锁定" : "未锁定"}</button>
+                    <button className="bw-btn" onClick={async()=>{ const ok = await copyText(seg.translation || ""); showToast(ok ? "已复制" : "复制失败", ok ? "success" : "error"); }}>复制译文</button>
+                    {seg.status === "stale" && <span className="bw-badge-warn">需更新</span>}
+                    {seg.status === "fresh" && <span className="bw-badge-ok">最新</span>}
                   </div>
                 </div>
               ))}
@@ -321,8 +321,8 @@ export default function Page() {
         </div>
       </main>
 
-      {toast && (<div className={`fixed bottom-4 right-4 z-50 text-white px-3 py-2 rounded-xl shadow ${toast.type === "success" ? "bg-emerald-600" : "bg-amber-600"}`}>{toast.msg}</div>)}
-      <footer className="max-w-5xl mx-auto px-4 pb-8 text-xs text-slate-400">Lightweight MVP · 同域 Backend 可选</footer>
+  {toast && (<div className={`bw-toast ${toast.type === "success" ? "ok" : "warn"}`}>{toast.msg}</div>)}
+  <footer className="bw-container bw-footer">Lightweight MVP · 同域 Backend 可选</footer>
     </div>
   );
 }
