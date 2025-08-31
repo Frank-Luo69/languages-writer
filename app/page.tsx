@@ -177,6 +177,18 @@ async function translateBackend(q: string, src: string, tgt: string) {
   if (!text) throw new Error('Bad response'); return text;
 }
 
+// 纯文本 -> 段落数组（按空行优先，其次按单行换行兜底）
+function splitPlainIntoParagraphs(text: string): string[] {
+  const t = (text || "").replace(/\r\n?/g, "\n").trim();
+  if (!t) return [];
+  let paras = t.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+  if (paras.length <= 1 && t.includes("\n")) {
+    const tmp = t.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+    if (tmp.length > 1) paras = tmp;
+  }
+  return paras;
+}
+
 export default function Page() {
   const [segMode, setSegMode] = useState<SegMode>("sentence");
   const [provider, setProvider] = useState<Provider>("dummy");
@@ -287,7 +299,35 @@ export default function Page() {
     setDownloading(true);
     try {
       const parts: string[] = ["# Bilingual Document", ""];
-      segments.forEach((s) => { if (!s.text.trim()) return; parts.push(s.text.trim()); const t = (s.translation || "").trim(); if (t) parts.push("> " + t); parts.push(""); });
+      if (segMode === 'whole') {
+        // 用 HTML 精准抽取原文段落，译文用空行拆段对齐（尽力保持结构）
+        const srcParas = extractParagraphsFromHTML(html);
+        const tgtAll = (segments[0]?.translation || "").trim();
+        const tgtParas = splitPlainIntoParagraphs(tgtAll);
+        const n = Math.max(srcParas.length, tgtParas.length);
+        for (let i = 0; i < n; i++) {
+          const sp = (srcParas[i] || '').trim();
+          const tp = (tgtParas[i] || '').trim();
+          if (sp) parts.push(sp);
+          if (tp) {
+            // 保留段内换行的引用格式
+            const q = tp.split(/\n/).map((l) => "> " + l).join("\n");
+            parts.push(q);
+          }
+          parts.push("");
+        }
+      } else {
+        segments.forEach((s) => {
+          if (!s.text.trim()) return;
+          parts.push(s.text.trim());
+          const t = (s.translation || "").trim();
+          if (t) {
+            const q = t.split(/\n/).map((l) => "> " + l).join("\n");
+            parts.push(q);
+          }
+          parts.push("");
+        });
+      }
       const blob = new Blob([parts.join(NL)], { type: "text/markdown;charset=utf-8" });
   const ok = downloadBlobSmart("bilingual.md", blob);
       if (!ok) showToast("下载被阻止，建议在浏览器中打开或放宽限制", "error");
@@ -300,15 +340,50 @@ export default function Page() {
     setDownloading(true);
     try {
       const docx = await import('docx');
-      const { Document, Packer, Paragraph, Table, TableCell, TableRow, WidthType, AlignmentType } = docx as any;
-      const rows = segments
-        .filter(s => (s.text && s.text.trim()) || (s.translation && s.translation.trim()))
-        .map((s: Segment) => new TableRow({
-          children: [
-            new TableCell({ children: [new Paragraph(s.text || '')], width: { size: 50, type: WidthType.PERCENTAGE } }),
-            new TableCell({ children: [new Paragraph(s.translation || '')], width: { size: 50, type: WidthType.PERCENTAGE } }),
-          ],
-        }));
+      const { Document, Packer, Paragraph, TextRun, Table, TableCell, TableRow, WidthType, AlignmentType } = docx as any;
+
+      const makeParas = (text: string) => {
+        // 段落级：按空行拆；段内：单行换行转为换行符
+        const paras: any[] = [];
+        const blocks = splitPlainIntoParagraphs(text);
+        if (!blocks.length) return [new Paragraph("")];
+        for (const b of blocks) {
+          const lines = b.split(/\n/);
+          const runs: any[] = [];
+          lines.forEach((line, idx) => {
+            runs.push(new TextRun({ text: line || '' }));
+            if (idx < lines.length - 1) runs.push(new TextRun({ text: "", break: 1 }));
+          });
+          paras.push(new Paragraph({ children: runs.length ? runs : [new TextRun("")] }));
+        }
+        return paras;
+      };
+
+      let rows: any[] = [];
+      if (segMode === 'whole' && segments.length) {
+        const srcParas = extractParagraphsFromHTML(html); // 更可靠的原文段落
+        const tgtParas = splitPlainIntoParagraphs(segments[0].translation || "");
+        const n = Math.max(srcParas.length, tgtParas.length);
+        for (let i = 0; i < n; i++) {
+          const left = makeParas(srcParas[i] || '');
+          const right = makeParas(tgtParas[i] || '');
+          rows.push(new TableRow({
+            children: [
+              new TableCell({ children: left, width: { size: 50, type: WidthType.PERCENTAGE } }),
+              new TableCell({ children: right, width: { size: 50, type: WidthType.PERCENTAGE } }),
+            ],
+          }));
+        }
+      } else {
+        rows = segments
+          .filter(s => (s.text && s.text.trim()) || (s.translation && s.translation.trim()))
+          .map((s: Segment) => new TableRow({
+            children: [
+              new TableCell({ children: makeParas(s.text || ''), width: { size: 50, type: WidthType.PERCENTAGE } }),
+              new TableCell({ children: makeParas(s.translation || ''), width: { size: 50, type: WidthType.PERCENTAGE } }),
+            ],
+          }));
+      }
       const table = new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } });
       const doc = new Document({ sections: [{ children: [ new Paragraph({ text: 'Bilingual Document', heading: 'Heading1', alignment: AlignmentType.CENTER }), table ] }] });
       const blob = await Packer.toBlob(doc);
