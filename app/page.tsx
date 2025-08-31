@@ -93,8 +93,8 @@ function sanitizePlainTextToHtml(text: string) {
   return paras.map((p) => `<p>${escapeHtml(p.trim()).replace(/\n/g,"<br>")}</p>`).join("");
 }
 
-// HTML -> 仅保留段落边界（<p>）与换行（<br>），去掉其他标签
-function sanitizeHtmlPreserveP(html: string) {
+// HTML -> 保留段落边界：<p> 或常见块级元素（div/li/h1-6/blockquote/pre），内部换行转 <br>
+function sanitizeHtmlPreserveBlocks(html: string) {
   const root = document.createElement("div");
   root.innerHTML = html || "";
 
@@ -117,9 +117,38 @@ function sanitizeHtmlPreserveP(html: string) {
       .join("");
   }
 
-  // 若没有 <p>，回退为纯文本逻辑（空行分段）
-  const plain = root.textContent || "";
-  return sanitizePlainTextToHtml(plain);
+  const BLOCKS = new Set(["DIV","LI","H1","H2","H3","H4","H5","H6","BLOCKQUOTE","PRE"]);
+  const paras: string[] = [];
+  let buffer = "";
+
+  const flush = () => { const t = buffer.trim(); if (t) paras.push(t); buffer = ""; };
+
+  const walk = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      buffer += node.textContent || ""; return;
+    }
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      if (el.tagName === "BR") { buffer += "\n"; return; }
+      if (BLOCKS.has(el.tagName)) {
+        // 遇到块元素，先冲洗缓冲区，再把该块整体作为一段
+        flush();
+        const t = collectText(el).trim(); if (t) paras.push(t);
+        return;
+      }
+      el.childNodes.forEach(walk);
+    }
+  };
+
+  root.childNodes.forEach(walk);
+  flush();
+
+  if (!paras.length) {
+    // 若仍未识别到块，退化到纯文本的空行分段
+    const plain = root.textContent || ""; return sanitizePlainTextToHtml(plain);
+  }
+
+  return paras.map((t) => `<p>${escapeHtml(t).replace(/\n/g, "<br>")}</p>`).join("");
 }
 
 // 翻译实现
@@ -200,8 +229,8 @@ export default function Page() {
     try {
       e.preventDefault(); const cd = e.clipboardData;
       const html = cd?.getData("text/html") || "";
-      if (html && /<p[\s>]/i.test(html)) {
-        const safe = sanitizeHtmlPreserveP(html);
+      if (html) {
+        const safe = sanitizeHtmlPreserveBlocks(html);
         document.execCommand("insertHTML", false, safe);
       } else {
         const txt = cd?.getData("text/plain") || (html ? ((): string => { const d = document.createElement("div"); d.innerHTML = html; return d.textContent || ""; })() : "");
