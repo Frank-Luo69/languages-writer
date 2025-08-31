@@ -45,7 +45,12 @@ function htmlToPlainText(html: string) {
 }
 // HTML -> 段落数组（段落分割用）
 function extractParagraphsFromHTML(html: string): string[] {
-  const root = document.createElement("div"); root.innerHTML = html;
+  const root = document.createElement("div");
+  root.innerHTML = html || "";
+
+  const BLOCK_TAGS = new Set(["P","LI","H1","H2","H3","H4","H5","H6","BLOCKQUOTE","PRE"]);
+  const hasDeepBlock = (el: HTMLElement) => !!el.querySelector("p,li,h1,h2,h3,h4,h5,h6,blockquote,pre");
+
   const toText = (el: HTMLElement): string => {
     let out = "";
     el.childNodes.forEach((n) => {
@@ -55,16 +60,50 @@ function extractParagraphsFromHTML(html: string): string[] {
         if (e.tagName === "BR") out += NL; else out += toText(e);
       }
     });
-    return out.trim();
+    return out;
   };
+
   const paras: string[] = [];
-  root.childNodes.forEach((n) => {
-    if (n.nodeType === Node.ELEMENT_NODE) {
-      const el = n as HTMLElement; const t = toText(el); if (t) paras.push(t);
-    } else if (n.nodeType === Node.TEXT_NODE) {
-      const t = (n.textContent || "").trim(); if (t) paras.push(t);
-    }
-  });
+
+  const flushInlineBuffer = (buf: {v: string}) => {
+    const t = buf.v.trim(); if (t) paras.push(t); buf.v = "";
+  };
+  const inlineBuf = { v: "" };
+
+  const traverseChildren = (parent: HTMLElement | DocumentFragment) => {
+    parent.childNodes.forEach((n) => {
+      if (n.nodeType === Node.TEXT_NODE) { inlineBuf.v += n.textContent || ""; return; }
+      if (n.nodeType === Node.ELEMENT_NODE) {
+        const el = n as HTMLElement;
+        const tag = el.tagName;
+        if (tag === "BR") { inlineBuf.v += NL; return; }
+        if (BLOCK_TAGS.has(tag)) {
+          flushInlineBuffer(inlineBuf);
+          const t = toText(el).trim(); if (t) paras.push(t);
+          return;
+        }
+        if (tag === "DIV") {
+          if (hasDeepBlock(el)) { traverseChildren(el); }
+          else {
+            flushInlineBuffer(inlineBuf);
+            const t = toText(el).trim(); if (t) paras.push(t);
+          }
+          return;
+        }
+        // Inline/unknown container: descend inline
+        el.childNodes.forEach((c) => {
+          if (c.nodeType === Node.TEXT_NODE) inlineBuf.v += c.textContent || "";
+          else if (c.nodeType === Node.ELEMENT_NODE) {
+            const ce = c as HTMLElement; if (ce.tagName === "BR") inlineBuf.v += NL; else traverseChildren(ce);
+          }
+        });
+      }
+    });
+  };
+
+  traverseChildren(root);
+  flushInlineBuffer(inlineBuf);
+
   if (paras.length) return paras;
   const single = (root.textContent || "").trim(); return single ? [single] : [];
 }
@@ -176,7 +215,7 @@ async function translateBackend(q: string, src: string, tgt: string) {
 }
 
 export default function Page() {
-  const [segMode, setSegMode] = useState<SegMode>("sentence");
+  const [segMode, setSegMode] = useState<SegMode>("paragraph");
   const [provider, setProvider] = useState<Provider>("dummy");
   const [endpoint, setEndpoint] = useState("https://libretranslate.de/translate");
   const [apiKey, setApiKey] = useState("");
