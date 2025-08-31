@@ -45,65 +45,28 @@ function htmlToPlainText(html: string) {
 }
 // HTML -> 段落数组（段落分割用）
 function extractParagraphsFromHTML(html: string): string[] {
-  // 规则：
-  // - 粘贴清洗产生的 <p> 视为“空行分段”的天然边界；
-  // - 键入时，只有出现空块（两次回车产生的空行）才分段；普通单回车产生的块会被合并。
-  const root = document.createElement("div");
-  root.innerHTML = html;
-
-  const nodeToText = (el: HTMLElement): string => {
+  const root = document.createElement("div"); root.innerHTML = html;
+  const toText = (el: HTMLElement): string => {
     let out = "";
     el.childNodes.forEach((n) => {
       if (n.nodeType === Node.TEXT_NODE) out += n.textContent || "";
       else if (n.nodeType === Node.ELEMENT_NODE) {
         const e = n as HTMLElement;
-        if (e.tagName === "BR") out += NL; else out += nodeToText(e);
+        if (e.tagName === "BR") out += NL; else out += toText(e);
       }
     });
     return out.trim();
   };
-
-  const results: string[] = [];
-  let buf = "";
-  const commit = () => {
-    const t = buf.trim();
-    if (t) results.push(t);
-    buf = "";
-  };
-
+  const paras: string[] = [];
   root.childNodes.forEach((n) => {
     if (n.nodeType === Node.ELEMENT_NODE) {
-      const el = n as HTMLElement;
-      // 粘贴的 <p>：视为分段边界
-      if (el.tagName === "P") {
-        // 先提交缓冲（来自前面连续的非空块）
-        commit();
-        const t = nodeToText(el);
-        if (t) results.push(t);
-        return; // 独立一段，缓冲不续接
-      }
-      const t = nodeToText(el);
-      if (!t) {
-        // 空块：作为分段的分隔符
-        commit();
-      } else {
-        // 连续非空块：合并到同一段
-        if (buf) buf += NL + t; else buf = t;
-      }
+      const el = n as HTMLElement; const t = toText(el); if (t) paras.push(t);
     } else if (n.nodeType === Node.TEXT_NODE) {
-      const t = (n.textContent || "").trim();
-      if (!t) {
-        commit();
-      } else {
-        if (buf) buf += NL + t; else buf = t;
-      }
+      const t = (n.textContent || "").trim(); if (t) paras.push(t);
     }
   });
-  commit();
-
-  if (results.length) return results;
-  const single = (root.textContent || "").trim();
-  return single ? [single] : [];
+  if (paras.length) return paras;
+  const single = (root.textContent || "").trim(); return single ? [single] : [];
 }
 // 句子切分
 function splitIntoSentences(text: string): string[] {
@@ -128,6 +91,35 @@ function sanitizePlainTextToHtml(text: string) {
   const t = (text || "").replace(/\r\n?/g,"\n");
   const paras = t.split(/\n{2,}/);
   return paras.map((p) => `<p>${escapeHtml(p.trim()).replace(/\n/g,"<br>")}</p>`).join("");
+}
+
+// HTML -> 仅保留段落边界（<p>）与换行（<br>），去掉其他标签
+function sanitizeHtmlPreserveP(html: string) {
+  const root = document.createElement("div");
+  root.innerHTML = html || "";
+
+  const collectText = (el: HTMLElement): string => {
+    let out = "";
+    el.childNodes.forEach((n) => {
+      if (n.nodeType === Node.TEXT_NODE) out += n.textContent || "";
+      else if (n.nodeType === Node.ELEMENT_NODE) {
+        const e = n as HTMLElement;
+        if (e.tagName === "BR") out += "\n"; else out += collectText(e);
+      }
+    });
+    return out;
+  };
+
+  const ps = Array.from(root.querySelectorAll("p"));
+  if (ps.length) {
+    return ps
+      .map((p) => `<p>${escapeHtml(collectText(p).trim()).replace(/\n/g, "<br>")}</p>`)
+      .join("");
+  }
+
+  // 若没有 <p>，回退为纯文本逻辑（空行分段）
+  const plain = root.textContent || "";
+  return sanitizePlainTextToHtml(plain);
 }
 
 // 翻译实现
@@ -207,9 +199,15 @@ export default function Page() {
   function onPaste(e: React.ClipboardEvent<HTMLDivElement>) {
     try {
       e.preventDefault(); const cd = e.clipboardData;
-      let txt = cd ? cd.getData("text/plain") : "";
-      if (!txt) { const html = cd?.getData("text/html") || ""; if (html) { const d = document.createElement("div"); d.innerHTML = html; txt = d.textContent || (d as any).innerText || html; } }
-      const safe = sanitizePlainTextToHtml(txt); document.execCommand("insertHTML", false, safe);
+      const html = cd?.getData("text/html") || "";
+      if (html && /<p[\s>]/i.test(html)) {
+        const safe = sanitizeHtmlPreserveP(html);
+        document.execCommand("insertHTML", false, safe);
+      } else {
+        const txt = cd?.getData("text/plain") || (html ? ((): string => { const d = document.createElement("div"); d.innerHTML = html; return d.textContent || ""; })() : "");
+        const safe = sanitizePlainTextToHtml(txt);
+        document.execCommand("insertHTML", false, safe);
+      }
     } catch {} onEditorInput();
   }
 
