@@ -45,7 +45,11 @@ function htmlToPlainText(html: string) {
 }
 // HTML -> 段落数组（段落分割用）
 function extractParagraphsFromHTML(html: string): string[] {
-  const root = document.createElement("div"); root.innerHTML = html;
+  const root = document.createElement("div");
+  root.innerHTML = html;
+
+  const BLOCK_SELECTOR = "p,li,h1,h2,h3,h4,h5,h6,blockquote,pre";
+
   const toText = (el: HTMLElement): string => {
     let out = "";
     el.childNodes.forEach((n) => {
@@ -57,16 +61,44 @@ function extractParagraphsFromHTML(html: string): string[] {
     });
     return out.trim();
   };
-  const paras: string[] = [];
-  root.childNodes.forEach((n) => {
-    if (n.nodeType === Node.ELEMENT_NODE) {
-      const el = n as HTMLElement; const t = toText(el); if (t) paras.push(t);
-    } else if (n.nodeType === Node.TEXT_NODE) {
-      const t = (n.textContent || "").trim(); if (t) paras.push(t);
+
+  // 优先使用明确的段落级元素
+  let blocks = Array.from(root.querySelectorAll(BLOCK_SELECTOR));
+  // 只保留“叶子”块，避免 div/li 内部还有 p 被重复计入
+  const leafBlocks = blocks.filter((el) => !(el as HTMLElement).querySelector(BLOCK_SELECTOR));
+  blocks = leafBlocks.length ? leafBlocks : blocks;
+
+  let paras: string[] = [];
+  if (blocks.length > 0) {
+    paras = blocks.map((el) => toText(el as HTMLElement)).filter((t) => !!t);
+  } else {
+    // 无明确块元素时，尝试用顶层子元素划分
+    const children = Array.from(root.children) as HTMLElement[];
+    if (children.length > 0) {
+      paras = children.map((el) => toText(el)).filter(Boolean);
+    } else {
+      // 纯文本兜底：按空行拆段，最后按单行换行尽量拆
+      const text = (root.textContent || "").replace(/\r\n?/g, "\n").trim();
+      if (text) {
+        paras = text.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+        if (paras.length <= 1 && text.includes("\n")) {
+          const tmp = text.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+          if (tmp.length > 1) paras = tmp;
+        }
+      }
     }
-  });
-  if (paras.length) return paras;
-  const single = (root.textContent || "").trim(); return single ? [single] : [];
+  }
+
+  // 单段内仍存在多行换行时，尝试进一步按空行拆分
+  if (paras.length <= 1 && paras[0]?.includes("\n")) {
+    const p0 = paras[0];
+    const firstPass = p0.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+    if (firstPass.length > 1) return firstPass;
+    const secondPass = p0.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+    if (secondPass.length > 1) return secondPass;
+  }
+
+  return paras;
 }
 // 句子切分
 function splitIntoSentences(text: string): string[] {
@@ -203,11 +235,22 @@ export default function Page() {
   function onEditorInput() { const el = editorRef.current; if (!el) return; setHtml(el.innerHTML); debouncedAuto.current(); }
   function onPaste(e: React.ClipboardEvent<HTMLDivElement>) {
     try {
-      e.preventDefault(); const cd = e.clipboardData;
-      let txt = cd ? cd.getData("text/plain") : "";
-      if (!txt) { const html = cd?.getData("text/html") || ""; if (html) { const d = document.createElement("div"); d.innerHTML = html; txt = d.textContent || (d as any).innerText || html; } }
-      const safe = sanitizePlainTextToHtml(txt); document.execCommand("insertHTML", false, safe);
-    } catch {} onEditorInput();
+      e.preventDefault();
+      const cd = e.clipboardData;
+      const htmlClip = cd?.getData("text/html");
+      if (htmlClip && htmlClip.trim()) {
+        // 优先使用 HTML，提取并归一化为 <p> 段落，保留 <br>
+        const paras = extractParagraphsFromHTML(htmlClip);
+        const safeHtml = paras.map((p) => `<p>${escapeHtml(p).replace(/\n/g, "<br>")}</p>`).join("");
+        document.execCommand("insertHTML", false, safeHtml);
+      } else {
+        // 退化为纯文本处理
+        const txt = cd ? cd.getData("text/plain") : "";
+        const safe = sanitizePlainTextToHtml(txt);
+        document.execCommand("insertHTML", false, safe);
+      }
+    } catch {}
+    onEditorInput();
   }
 
   function newDoc() {
