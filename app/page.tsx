@@ -308,8 +308,10 @@ export default function Page() {
               {segments.length === 0 && <div className="bw-meta">输入文本后，这里显示对齐译文。</div>}
               {segments.map((seg, i) => (
                 <div key={seg.id} className="bw-card" style={{ padding: 12 }} data-seg={seg.id}>
-                  <div className="bw-meta" style={{ whiteSpace: 'pre-wrap' }}>{seg.text}</div>
-                  <div className="bw-translation-box" style={{ marginTop: 8 }}>
+                  {segMode !== 'whole' && (
+                    <div className="bw-meta" style={{ whiteSpace: 'pre-wrap' }}>{seg.text}</div>
+                  )}
+                  <div className="bw-translation-box" style={{ marginTop: segMode !== 'whole' ? 8 : 0 }}>
                     {seg.translation || (seg.status === "translating" ? "Translating…" : "")}
                     {seg.status === "error" && <div className="bw-badge-err">{seg.errorMsg}</div>}
                   </div>
