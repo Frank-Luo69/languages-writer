@@ -45,28 +45,65 @@ function htmlToPlainText(html: string) {
 }
 // HTML -> 段落数组（段落分割用）
 function extractParagraphsFromHTML(html: string): string[] {
-  const root = document.createElement("div"); root.innerHTML = html;
-  const toText = (el: HTMLElement): string => {
+  // 规则：
+  // - 粘贴清洗产生的 <p> 视为“空行分段”的天然边界；
+  // - 键入时，只有出现空块（两次回车产生的空行）才分段；普通单回车产生的块会被合并。
+  const root = document.createElement("div");
+  root.innerHTML = html;
+
+  const nodeToText = (el: HTMLElement): string => {
     let out = "";
     el.childNodes.forEach((n) => {
       if (n.nodeType === Node.TEXT_NODE) out += n.textContent || "";
       else if (n.nodeType === Node.ELEMENT_NODE) {
         const e = n as HTMLElement;
-        if (e.tagName === "BR") out += NL; else out += toText(e);
+        if (e.tagName === "BR") out += NL; else out += nodeToText(e);
       }
     });
     return out.trim();
   };
-  const paras: string[] = [];
+
+  const results: string[] = [];
+  let buf = "";
+  const commit = () => {
+    const t = buf.trim();
+    if (t) results.push(t);
+    buf = "";
+  };
+
   root.childNodes.forEach((n) => {
     if (n.nodeType === Node.ELEMENT_NODE) {
-      const el = n as HTMLElement; const t = toText(el); if (t) paras.push(t);
+      const el = n as HTMLElement;
+      // 粘贴的 <p>：视为分段边界
+      if (el.tagName === "P") {
+        // 先提交缓冲（来自前面连续的非空块）
+        commit();
+        const t = nodeToText(el);
+        if (t) results.push(t);
+        return; // 独立一段，缓冲不续接
+      }
+      const t = nodeToText(el);
+      if (!t) {
+        // 空块：作为分段的分隔符
+        commit();
+      } else {
+        // 连续非空块：合并到同一段
+        if (buf) buf += NL + t; else buf = t;
+      }
     } else if (n.nodeType === Node.TEXT_NODE) {
-      const t = (n.textContent || "").trim(); if (t) paras.push(t);
+      const t = (n.textContent || "").trim();
+      if (!t) {
+        commit();
+      } else {
+        if (buf) buf += NL + t; else buf = t;
+      }
     }
   });
-  if (paras.length) return paras;
-  const single = (root.textContent || "").trim(); return single ? [single] : [];
+  commit();
+
+  if (results.length) return results;
+  const single = (root.textContent || "").trim();
+  return single ? [single] : [];
 }
 // 句子切分
 function splitIntoSentences(text: string): string[] {
