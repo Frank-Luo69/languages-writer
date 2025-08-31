@@ -85,54 +85,30 @@ async function copyText(str: string): Promise<boolean> {
   } catch { return false; }
 }
 
-  // 智能下载：优先使用文件保存选择器，其次 a[download]，最后新窗口打开
-  async function downloadBlobSmart(filename: string, blob: Blob, mime?: string): Promise<boolean> {
-    // 1) File System Access API（需在用户手势内调用，且浏览器支持）
+  // 智能下载（不使用文件保存选择器）：a[download] 或 window.open 兜底
+  function downloadBlobSmart(filename: string, blob: Blob): boolean {
+    const inIframe = (() => { try { return window.self !== window.top; } catch { return true; } })();
+    const url = URL.createObjectURL(blob);
     try {
-      const w: any = window as any;
-      if (typeof w.showSaveFilePicker === 'function') {
-        const handle = await w.showSaveFilePicker({
-          suggestedName: filename,
-          types: [
-            {
-              description: 'Document',
-              accept: {
-                'text/markdown': ['.md'],
-                'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-                'application/octet-stream': ['.bin'],
-              },
-            },
-          ],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
+      if (inIframe) {
+        const win = window.open(url, '_blank');
+        if (!win) throw new Error('popup blocked');
+        setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 5000);
+        return true;
+      } else {
+        const a = document.createElement('a');
+        a.href = url; a.download = filename; a.style.display = 'none';
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { try { a.remove(); URL.revokeObjectURL(url); } catch {} }, 0);
         return true;
       }
-    } catch (e: any) {
-      // 用户取消另算失败但不报错；其他情况继续回退
-      if (e?.name !== 'AbortError') console.warn('saveFilePicker failed:', e);
-    }
-    // 2) a[download] 触发下载
-    try {
-      const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-      a.style.display = 'none'; document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { try { a.remove(); URL.revokeObjectURL(url); } catch {} }, 0);
-      return true;
     } catch (e) {
-      console.warn('anchor download failed:', e);
-    }
-    // 3) 最后回退：新开标签页（某些沙箱里 a[download] 被禁时）
-    try {
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
-      setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 5000);
-      return true;
-    } catch (e) {
-      console.warn('window.open fallback failed:', e);
+      console.warn('download fallback failed:', e);
+      try {
+        window.open(url, '_blank');
+        setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 5000);
+        return true;
+      } catch {}
     }
     return false;
   }
@@ -270,7 +246,7 @@ export default function Page() {
       const parts: string[] = ["# Bilingual Document", ""];
       segments.forEach((s) => { if (!s.text.trim()) return; parts.push(s.text.trim()); const t = (s.translation || "").trim(); if (t) parts.push("> " + t); parts.push(""); });
       const blob = new Blob([parts.join(NL)], { type: "text/markdown;charset=utf-8" });
-      const ok = await downloadBlobSmart("bilingual.md", blob, "text/markdown");
+  const ok = downloadBlobSmart("bilingual.md", blob);
       if (!ok) showToast("下载被阻止，建议在浏览器中打开或放宽限制", "error");
     } finally {
       setDownloading(false);
@@ -293,7 +269,7 @@ export default function Page() {
       const table = new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } });
       const doc = new Document({ sections: [{ children: [ new Paragraph({ text: 'Bilingual Document', heading: 'Heading1', alignment: AlignmentType.CENTER }), table ] }] });
       const blob = await Packer.toBlob(doc);
-      const ok = await downloadBlobSmart('bilingual.docx', blob, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+  const ok = downloadBlobSmart('bilingual.docx', blob);
       if (!ok) showToast('下载被阻止，建议在浏览器中打开或放宽限制', 'error');
     } catch (e: any) {
       showToast(`DOCX 导出失败：${e?.message || String(e)}`, 'error');
