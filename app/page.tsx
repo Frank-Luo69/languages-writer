@@ -11,7 +11,7 @@ type Segment = {
 };
 
 type Provider = "dummy" | "libre" | "backend";
-type SegMode = "sentence" | "paragraph";
+type SegMode = "sentence" | "paragraph" | "whole";
 
 const NL = "\n";
 const LS_DOC = "bw_mvp_light_doc";
@@ -45,12 +45,7 @@ function htmlToPlainText(html: string) {
 }
 // HTML -> 段落数组（段落分割用）
 function extractParagraphsFromHTML(html: string): string[] {
-  const root = document.createElement("div");
-  root.innerHTML = html || "";
-
-  const BLOCK_TAGS = new Set(["P","LI","H1","H2","H3","H4","H5","H6","BLOCKQUOTE","PRE"]);
-  const hasDeepBlock = (el: HTMLElement) => !!el.querySelector("p,li,h1,h2,h3,h4,h5,h6,blockquote,pre");
-
+  const root = document.createElement("div"); root.innerHTML = html;
   const toText = (el: HTMLElement): string => {
     let out = "";
     el.childNodes.forEach((n) => {
@@ -60,50 +55,16 @@ function extractParagraphsFromHTML(html: string): string[] {
         if (e.tagName === "BR") out += NL; else out += toText(e);
       }
     });
-    return out;
+    return out.trim();
   };
-
   const paras: string[] = [];
-
-  const flushInlineBuffer = (buf: {v: string}) => {
-    const t = buf.v.trim(); if (t) paras.push(t); buf.v = "";
-  };
-  const inlineBuf = { v: "" };
-
-  const traverseChildren = (parent: HTMLElement | DocumentFragment) => {
-    parent.childNodes.forEach((n) => {
-      if (n.nodeType === Node.TEXT_NODE) { inlineBuf.v += n.textContent || ""; return; }
-      if (n.nodeType === Node.ELEMENT_NODE) {
-        const el = n as HTMLElement;
-        const tag = el.tagName;
-        if (tag === "BR") { inlineBuf.v += NL; return; }
-        if (BLOCK_TAGS.has(tag)) {
-          flushInlineBuffer(inlineBuf);
-          const t = toText(el).trim(); if (t) paras.push(t);
-          return;
-        }
-        if (tag === "DIV") {
-          if (hasDeepBlock(el)) { traverseChildren(el); }
-          else {
-            flushInlineBuffer(inlineBuf);
-            const t = toText(el).trim(); if (t) paras.push(t);
-          }
-          return;
-        }
-        // Inline/unknown container: descend inline
-        el.childNodes.forEach((c) => {
-          if (c.nodeType === Node.TEXT_NODE) inlineBuf.v += c.textContent || "";
-          else if (c.nodeType === Node.ELEMENT_NODE) {
-            const ce = c as HTMLElement; if (ce.tagName === "BR") inlineBuf.v += NL; else traverseChildren(ce);
-          }
-        });
-      }
-    });
-  };
-
-  traverseChildren(root);
-  flushInlineBuffer(inlineBuf);
-
+  root.childNodes.forEach((n) => {
+    if (n.nodeType === Node.ELEMENT_NODE) {
+      const el = n as HTMLElement; const t = toText(el); if (t) paras.push(t);
+    } else if (n.nodeType === Node.TEXT_NODE) {
+      const t = (n.textContent || "").trim(); if (t) paras.push(t);
+    }
+  });
   if (paras.length) return paras;
   const single = (root.textContent || "").trim(); return single ? [single] : [];
 }
@@ -132,64 +93,6 @@ function sanitizePlainTextToHtml(text: string) {
   return paras.map((p) => `<p>${escapeHtml(p.trim()).replace(/\n/g,"<br>")}</p>`).join("");
 }
 
-// HTML -> 保留段落边界：<p> 或常见块级元素（div/li/h1-6/blockquote/pre），内部换行转 <br>
-function sanitizeHtmlPreserveBlocks(html: string) {
-  const root = document.createElement("div");
-  root.innerHTML = html || "";
-
-  const collectText = (el: HTMLElement): string => {
-    let out = "";
-    el.childNodes.forEach((n) => {
-      if (n.nodeType === Node.TEXT_NODE) out += n.textContent || "";
-      else if (n.nodeType === Node.ELEMENT_NODE) {
-        const e = n as HTMLElement;
-        if (e.tagName === "BR") out += "\n"; else out += collectText(e);
-      }
-    });
-    return out;
-  };
-
-  const ps = Array.from(root.querySelectorAll("p"));
-  if (ps.length) {
-    return ps
-      .map((p) => `<p>${escapeHtml(collectText(p).trim()).replace(/\n/g, "<br>")}</p>`)
-      .join("");
-  }
-
-  const BLOCKS = new Set(["DIV","LI","H1","H2","H3","H4","H5","H6","BLOCKQUOTE","PRE"]);
-  const paras: string[] = [];
-  let buffer = "";
-
-  const flush = () => { const t = buffer.trim(); if (t) paras.push(t); buffer = ""; };
-
-  const walk = (node: Node) => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      buffer += node.textContent || ""; return;
-    }
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      const el = node as HTMLElement;
-      if (el.tagName === "BR") { buffer += "\n"; return; }
-      if (BLOCKS.has(el.tagName)) {
-        // 遇到块元素，先冲洗缓冲区，再把该块整体作为一段
-        flush();
-        const t = collectText(el).trim(); if (t) paras.push(t);
-        return;
-      }
-      el.childNodes.forEach(walk);
-    }
-  };
-
-  root.childNodes.forEach(walk);
-  flush();
-
-  if (!paras.length) {
-    // 若仍未识别到块，退化到纯文本的空行分段
-    const plain = root.textContent || ""; return sanitizePlainTextToHtml(plain);
-  }
-
-  return paras.map((t) => `<p>${escapeHtml(t).replace(/\n/g, "<br>")}</p>`).join("");
-}
-
 // 翻译实现
 async function translateDummy(q: string, _src: string, tgt: string) { return `${q}` + (_src !== tgt ? ` [${tgt.toUpperCase()}]` : ""); }
 async function translateLibre(q: string, src: string, tgt: string, endpoint: string, apiKey?: string) {
@@ -215,7 +118,7 @@ async function translateBackend(q: string, src: string, tgt: string) {
 }
 
 export default function Page() {
-  const [segMode, setSegMode] = useState<SegMode>("paragraph");
+  const [segMode, setSegMode] = useState<SegMode>("sentence");
   const [provider, setProvider] = useState<Provider>("dummy");
   const [endpoint, setEndpoint] = useState("https://libretranslate.de/translate");
   const [apiKey, setApiKey] = useState("");
@@ -248,7 +151,12 @@ export default function Page() {
     let newSegTexts: string[] = [];
     if (segMode === "sentence") {
       const plain = htmlToPlainText(html); newSegTexts = splitIntoSentences(plain);
-    } else { newSegTexts = extractParagraphsFromHTML(html); }
+    } else if (segMode === "paragraph") {
+      newSegTexts = extractParagraphsFromHTML(html);
+    } else {
+      const plain = htmlToPlainText(html).trim();
+      newSegTexts = plain ? [plain] : [];
+    }
     setSegments((prev) => newSegTexts.map((t, i) => {
       const old = prev[i];
       if (old && old.text === t) return old;
@@ -267,15 +175,9 @@ export default function Page() {
   function onPaste(e: React.ClipboardEvent<HTMLDivElement>) {
     try {
       e.preventDefault(); const cd = e.clipboardData;
-      const html = cd?.getData("text/html") || "";
-      if (html) {
-        const safe = sanitizeHtmlPreserveBlocks(html);
-        document.execCommand("insertHTML", false, safe);
-      } else {
-        const txt = cd?.getData("text/plain") || (html ? ((): string => { const d = document.createElement("div"); d.innerHTML = html; return d.textContent || ""; })() : "");
-        const safe = sanitizePlainTextToHtml(txt);
-        document.execCommand("insertHTML", false, safe);
-      }
+      let txt = cd ? cd.getData("text/plain") : "";
+      if (!txt) { const html = cd?.getData("text/html") || ""; if (html) { const d = document.createElement("div"); d.innerHTML = html; txt = d.textContent || (d as any).innerText || html; } }
+      const safe = sanitizePlainTextToHtml(txt); document.execCommand("insertHTML", false, safe);
     } catch {} onEditorInput();
   }
 
@@ -349,6 +251,7 @@ export default function Page() {
           <select className="bw-select" value={segMode} onChange={(e)=>setSegMode(e.target.value as SegMode)}>
             <option value="sentence">按句子</option>
             <option value="paragraph">按段落</option>
+            <option value="whole">整体</option>
           </select>
           <select className="bw-select" value={provider} onChange={(e)=>setProvider(e.target.value as Provider)}>
             <option value="dummy">Dummy(演示)</option>
